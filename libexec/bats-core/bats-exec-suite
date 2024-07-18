@@ -256,8 +256,12 @@ if [[ -n "$setup_suite_file" ]]; then
     return 1
   }
 
-  # shellcheck disable=SC2034 # will be used in the sourced file below
-  BATS_TEST_FILENAME="$setup_suite_file"
+  if [[ -z "$(declare -f setup_suite)" ]]; then
+    setup_suite_file="$(dirname "${BATS_TEST_FILENAME}")/setup_suite.sh"
+  else
+    setup_suite_file="${BATS_TEST_FILENAME}"
+  fi
+
   # shellcheck source=lib/bats-core/test_functions.bash
   source "$BATS_ROOT/$BATS_LIBDIR/bats-core/test_functions.bash"
   _bats_test_functions_setup -1 # invalid TEST_NUMBER, as this is not a test
