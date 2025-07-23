@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
 # shellcheck source=lib/bats-core/formatter.bash
 source "$BATS_ROOT/$BATS_LIBDIR/bats-core/formatter.bash"
 
+
 BASE_PATH=.
+
 
 while [[ "$#" -ne 0 ]]; do
   case "$1" in
@@ -16,6 +19,7 @@ while [[ "$#" -ne 0 ]]; do
   shift
 done
 
+
 init_suite() {
   suite_test_exec_time=0
   # since we have to print the suite header before its contents but we don't know the contents before the header,
@@ -23,6 +27,7 @@ init_suite() {
   _suite_buffer=""
   test_result_state="" # declare for the first flush, when no test has been encountered
 }
+
 
 _buffer_log=
 init_file() {
@@ -38,14 +43,17 @@ init_file() {
   test_result_state="" # mark that no test has run in this file so far
 }
 
+
 host() {
   local hostname="${HOST:-}"
   [[ -z "$hostname" ]] && hostname="${HOSTNAME:-}"
   [[ -z "$hostname" ]] && hostname="$(uname -n)"
   [[ -z "$hostname" ]] && hostname="$(hostname -f)"
 
+
   echo "$hostname"
 }
+
 
 # convert $1 (time in milliseconds) to seconds
 milliseconds_to_seconds() {
@@ -59,10 +67,19 @@ milliseconds_to_seconds() {
   fi
 }
 
-suite_header() {
-  printf "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<testsuites time=\"%s\">\n" "$(milliseconds_to_seconds "${suite_test_exec_time}")"
+format_test_name() {
+  # Remove 'test_' prefix
+  local formatted_name="${1#test_}"
+  # Replace all underscores with spaces
+  formatted_name="${formatted_name//_/ }"
+  printf "%s" "$formatted_name"
 }
+
+
+suite_header() {
+  printf "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites time=\"%s\">\n" "$(milliseconds_to_seconds "${suite_test_exec_time}")"
+}
+
 
 file_header() {
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S")
@@ -70,20 +87,25 @@ file_header() {
     "$(xml_escape "${class}")" "${file_count}" "${file_failures}" "${file_skipped}" "$(milliseconds_to_seconds "${file_exec_time}")" "${timestamp}" "$(host)"
 }
 
+
 file_footer() {
   printf "</testsuite>\n"
 }
+
 
 suite_footer() {
   printf "</testsuites>\n"
 }
 
+
 print_test_case() {
+  local pretty_name
+  pretty_name="$(format_test_name "${name}")"
   if [[ "$test_result_state" == ok && -z "$_system_out_log" && -z "$_buffer_log" ]]; then
     # pass and no output can be shortened
-    printf "    <testcase classname=\"%s\" name=\"%s\" time=\"%s\" />\n" "$(xml_escape "${class}")" "$(xml_escape "${name}")" "$(milliseconds_to_seconds "${test_exec_time}")"
+    printf "    <testcase classname=\"%s\" name=\"%s\" time=\"%s\" />\n" "$(xml_escape "${class}")" "$(xml_escape "${pretty_name}")" "$(milliseconds_to_seconds "${test_exec_time}")"
   else
-    printf "    <testcase classname=\"%s\" name=\"%s\" time=\"%s\">\n" "$(xml_escape "${class}")" "$(xml_escape "${name}")" "$(milliseconds_to_seconds "${test_exec_time}")"
+    printf "    <testcase classname=\"%s\" name=\"%s\" time=\"%s\">\n" "$(xml_escape "${class}")" "$(xml_escape "${pretty_name}")" "$(milliseconds_to_seconds "${test_exec_time}")"
     if [[ -n "$_system_out_log" ]]; then
       printf "        <system-out>%s</system-out>\n" "$(xml_escape "${_system_out_log}")"
     fi
@@ -96,6 +118,7 @@ print_test_case() {
     printf "    </testcase>\n"
   fi
 }
+
 
 xml_escape() {
   output=${1//&/\&amp;}
@@ -112,6 +135,7 @@ xml_escape() {
   printf "%s" "$output"
 }
 
+
 suite_buffer() {
   local output
   output="$(
@@ -121,10 +145,12 @@ suite_buffer() {
   _suite_buffer="${_suite_buffer}${output%x}"
 }
 
+
 suite_flush() {
   echo -n "${_suite_buffer}"
   _suite_buffer=""
 }
+
 
 buffer() {
   local output
@@ -135,10 +161,12 @@ buffer() {
   _buffer="${_buffer}${output%x}"
 }
 
+
 flush() {
   echo -n "${_buffer}"
   _buffer=""
 }
+
 
 log() {
   if [[ -n "$_buffer_log" ]]; then
@@ -149,6 +177,7 @@ $1"
   fi
 }
 
+
 flush_log() {
   if [[ -n "$test_result_state" ]]; then
     buffer print_test_case
@@ -156,6 +185,7 @@ flush_log() {
   _buffer_log=""
   _system_out_log=""
 }
+
 
 log_system_out() {
   if [[ -n "$_system_out_log" ]]; then
@@ -166,6 +196,7 @@ $1"
   fi
 }
 
+
 finish_file() {
   if [[ "${class-JUNIT_FORMATTER_NO_FILE_ENCOUNTERED}" != JUNIT_FORMATTER_NO_FILE_ENCOUNTERED ]]; then
     file_header
@@ -173,6 +204,7 @@ finish_file() {
     file_footer
   fi
 }
+
 
 finish_suite() {
   flush_log
@@ -182,13 +214,16 @@ finish_suite() {
   suite_footer
 }
 
+
 bats_tap_stream_plan() { #  <number of tests>
   :
 }
 
+
 init_suite
 trap finish_suite EXIT
 trap '' INT
+
 
 bats_tap_stream_begin() { # <test index> <test name>
   flush_log
@@ -196,7 +231,9 @@ bats_tap_stream_begin() { # <test index> <test name>
   name="$2"
 }
 
+
 bats_tap_stream_ok() { # <test index> <test name>
+  name="$2"
   test_exec_time=${BATS_FORMATTER_TEST_DURATION:-0}
   ((file_count += 1))
   test_result_state='ok'
@@ -204,7 +241,9 @@ bats_tap_stream_ok() { # <test index> <test name>
   suite_test_exec_time=$((suite_test_exec_time + test_exec_time))
 }
 
+
 bats_tap_stream_skipped() { # <test index> <test name> <skip reason>
+  name="$2"
   test_exec_time=${BATS_FORMATTER_TEST_DURATION:-0}
   ((file_count += 1))
   ((file_skipped += 1))
@@ -213,7 +252,9 @@ bats_tap_stream_skipped() { # <test index> <test name> <skip reason>
   test_skip_message="$3"
 }
 
+
 bats_tap_stream_not_ok() { # <test index> <test name>
+  name="$2"
   test_exec_time=${BATS_FORMATTER_TEST_DURATION:-0}
   ((file_count += 1))
   ((file_failures += 1))
@@ -221,6 +262,7 @@ bats_tap_stream_not_ok() { # <test index> <test name>
   file_exec_time="$((file_exec_time + test_exec_time))"
   suite_test_exec_time=$((suite_test_exec_time + test_exec_time))
 }
+
 
 bats_tap_stream_comment() { # <comment text without leading '# '> <scope>
   local comment="$1" scope="$2"
@@ -240,6 +282,7 @@ bats_tap_stream_comment() { # <comment text without leading '# '> <scope>
   esac
 }
 
+
 bats_tap_stream_suite() { # <file name>
   flush_log
   suite_buffer finish_file
@@ -247,8 +290,10 @@ bats_tap_stream_suite() { # <file name>
   class="${1/$BASE_PATH/}"
 }
 
+
 bats_tap_stream_unknown() { # <full line>
   :
 }
+
 
 bats_parse_internal_extended_tap

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 # reads (extended) bats tap streams from stdin and calls callback functions for each line
 #
 # Segmenting functions
@@ -27,6 +28,7 @@ function bats_parse_internal_extended_tap() {
   local header_pattern='[0-9]+\.\.[0-9]+'
   IFS= read -r header
 
+
   if [[ "$header" =~ $header_pattern ]]; then
     bats_tap_stream_plan "${header:3}"
   else
@@ -35,12 +37,14 @@ function bats_parse_internal_extended_tap() {
     exec cat
   fi
 
+
   ok_line_regexpr="ok ([0-9]+) (.*)"
   skip_line_regexpr="ok ([0-9]+) (.*) # skip( (.*))?$"
   timeout_line_regexpr="not ok ([0-9]+) (.*) # timeout after ([0-9]+)s$"
   not_ok_line_regexpr="not ok ([0-9]+) (.*)"
 
-  timing_expr="in ([0-9]+)ms$"
+
+  timing_expr="in ([0-9]+)ms$" # Used to detect and extract timing
   local test_name begin_index last_begin_index try_index ok_index not_ok_index index scope
   begin_index=0
   last_begin_index=-1
@@ -49,86 +53,113 @@ function bats_parse_internal_extended_tap() {
   scope=plan
   while IFS= read -r line; do
     unset BATS_FORMATTER_TEST_DURATION BATS_FORMATTER_TEST_TIMEOUT
+    local current_test_name # This will hold the name *before* timing/comments are stripped
+    local current_comment=""
+    local current_timing_duration=""
+
     case "$line" in
-    'begin '*) # this might only be called in extended tap output
-      scope=begin
-      begin_index=${line#begin }
-      begin_index=${begin_index%% *}
-      if [[ $begin_index == "$last_begin_index" ]]; then
-        (( ++try_index ))
-      else
-        try_index=0
-      fi
-      test_name="${line#begin "$begin_index" }"
-      bats_tap_stream_begin "$begin_index" "$test_name"
-      ;;
-    'ok '*)
-      ((++index))
-      if [[ "$line" =~ $ok_line_regexpr ]]; then
-        ok_index="${BASH_REMATCH[1]}"
-        test_name="${BASH_REMATCH[2]}"
-        if [[ "$line" =~ $skip_line_regexpr ]]; then
-          scope=skipped
-          test_name="${BASH_REMATCH[2]}" # cut off name before "# skip"
-          local skip_reason="${BASH_REMATCH[4]}"
-          if [[ "$test_name" =~ $timing_expr ]]; then
-            local BATS_FORMATTER_TEST_DURATION="${BASH_REMATCH[1]}"
-            test_name="${test_name% in "${BATS_FORMATTER_TEST_DURATION}"ms}"
-            bats_tap_stream_skipped "$ok_index" "$test_name" "$skip_reason"
-          else
-            bats_tap_stream_skipped "$ok_index" "$test_name" "$skip_reason"
-          fi
+      'begin '*) # this might only be called in extended tap output
+        scope=begin
+        begin_index=${line#begin }
+        begin_index=${begin_index%% *}
+        if [[ $begin_index == "$last_begin_index" ]]; then
+          ((++try_index))
         else
-          scope=ok
-          if [[ "$line" =~ $timing_expr ]]; then
-            local BATS_FORMATTER_TEST_DURATION="${BASH_REMATCH[1]}"
-            bats_tap_stream_ok "$ok_index" "${test_name% in "${BASH_REMATCH[1]}"ms}"
+          try_index=0
+        fi
+        test_name="${line#begin "$begin_index" }"
+        bats_tap_stream_begin "$begin_index" "$test_name"
+        ;;
+      'ok '*)
+        ((++index))
+        if [[ "$line" =~ $ok_line_regexpr ]]; then
+          ok_index="${BASH_REMATCH[1]}"
+          current_test_name="${BASH_REMATCH[2]}" # This includes name, potential timing, and potential comment
+
+          if [[ "$current_test_name" =~ $timing_expr ]]; then
+            current_timing_duration="${BASH_REMATCH[1]}"
+            # Remove timing from the current_test_name for further processing
+            current_test_name="${current_test_name% in "${current_timing_duration}"ms}"
+            BATS_FORMATTER_TEST_DURATION="$current_timing_duration"
+          fi
+
+          if [[ "$current_test_name" == *" # "* ]]; then
+            test_name="${current_test_name%% # *}"
+            current_comment="${current_test_name#* # }"
           else
+            test_name="$current_test_name"
+          fi
+
+          if [[ "$line" =~ $skip_line_regexpr ]]; then
+            scope=skipped
+            local skip_reason="${BASH_REMATCH[4]}"
+            bats_tap_stream_skipped "$ok_index" "$test_name" "$skip_reason"
+          else
+            scope=ok
             bats_tap_stream_ok "$ok_index" "$test_name"
           fi
+
+          # If there's a general comment (not a skip reason), pass it
+          if [[ -n "$current_comment" && ! "$line" =~ $skip_line_regexpr ]]; then
+            bats_tap_stream_comment "$current_comment" "ok"
+          fi
+        else
+          printf "ERROR: could not match ok line: %s" "$line" >&2
+          exit 1
         fi
-      else
-        printf "ERROR: could not match ok line: %s" "$line" >&2
-        exit 1
-      fi
-      ;;
-    'not ok '*)
-      ((++index))
-      scope=not_ok
-      if [[ "$line" =~ $not_ok_line_regexpr ]]; then
-        not_ok_index="${BASH_REMATCH[1]}"
-        test_name="${BASH_REMATCH[2]}"
-        if [[ "$line" =~ $timeout_line_regexpr ]]; then
+        ;;
+      'not ok '*)
+        ((++index))
+        scope=not_ok
+        if [[ "$line" =~ $not_ok_line_regexpr ]]; then
           not_ok_index="${BASH_REMATCH[1]}"
-          test_name="${BASH_REMATCH[2]}"
-          # shellcheck disable=SC2034 # used in bats_tap_stream_ok
-          local BATS_FORMATTER_TEST_TIMEOUT="${BASH_REMATCH[3]}"
+          current_test_name="${BASH_REMATCH[2]}" # This includes name, potential timing, and potential comment
+
+          if [[ "$current_test_name" =~ $timing_expr ]]; then
+            current_timing_duration="${BASH_REMATCH[1]}"
+            # Remove timing from the current_test_name for further processing
+            current_test_name="${current_test_name% in "${current_timing_duration}"ms}"
+            # shellcheck disable=SC2034
+            BATS_FORMATTER_TEST_DURATION="$current_timing_duration"
+          fi
+
+          if [[ "$line" =~ $timeout_line_regexpr ]]; then
+            # The timeout message itself acts as the "comment" for this type of failure
+            # shellcheck disable=SC2034 # used in bats_tap_stream_not_ok
+            BATS_FORMATTER_TEST_TIMEOUT="${BASH_REMATCH[3]}"
+            test_name="${current_test_name}" # In timeout case, current_test_name is already stripped of timing, and the "comment" is handled by BATS_FORMATTER_TEST_TIMEOUT
+            current_comment="" # No general comment needed, specific timeout is the reason
+          elif [[ "$current_test_name" == *" # "* ]]; then
+            test_name="${current_test_name%% # *}"
+            current_comment="${current_test_name#* # }"
+          else
+            test_name="$current_test_name"
+          fi
+
+          bats_tap_stream_not_ok "$not_ok_index" "$test_name"
+
+          if [[ -n "$current_comment" ]]; then
+            bats_tap_stream_comment "$current_comment" "not_ok"
+          fi
+        else
+          printf "ERROR: could not match not ok line: %s" "$line" >&2
+          exit 1
         fi
-        if [[ "$test_name" =~ $timing_expr ]]; then
-          # shellcheck disable=SC2034 # used in bats_tap_stream_ok
-          local BATS_FORMATTER_TEST_DURATION="${BASH_REMATCH[1]}"
-          test_name="${test_name% in "${BASH_REMATCH[1]}"ms}"
-        fi
-        bats_tap_stream_not_ok "$not_ok_index" "$test_name"
-      else
-        printf "ERROR: could not match not ok line: %s" "$line" >&2
-        exit 1
-      fi
-      ;;
-    '# '*)
-      bats_tap_stream_comment "${line:2}" "$scope"
-      ;;
-    '#')
-      bats_tap_stream_comment "" "$scope"
-      ;;
-    'suite '*)
-      scope=suite
-      # pass on the
-      bats_tap_stream_suite "${line:6}"
-      ;;
-    *)
-      bats_tap_stream_unknown "$line" "$scope"
-      ;;
+        ;;
+      '# '*)
+        bats_tap_stream_comment "${line:2}" "$scope"
+        ;;
+      '#')
+        bats_tap_stream_comment "" "$scope"
+        ;;
+      'suite '*)
+        scope=suite
+        # pass on the
+        bats_tap_stream_suite "${line:6}"
+        ;;
+      *)
+        bats_tap_stream_unknown "$line" "$scope"
+        ;;
     esac
   done
 }

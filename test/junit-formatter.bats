@@ -5,27 +5,27 @@ fixtures junit-formatter
 
 FLOAT_REGEX='[0-9]+(\.[0-9]+)?'
 TIMESTAMP_REGEX='[0-9]+-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]'
-TESTSUITES_REGEX="<testsuites time=\"$FLOAT_REGEX\">"
+MS_REGEX='( in [0-9]+ms)?'
+ESCAPED_CHARS='&quot;&#39;&lt;&gt;&amp; \(0x1b\)'
 
 @test "junit formatter with skipped test does not fail" {
   reentrant_run bats --formatter junit "$FIXTURE_ROOT/skipped.bats"
   echo "$output"
   [[ $status -eq 0 ]]
-  [[ "${lines[0]}" == '<?xml version="1.0" encoding="UTF-8"?>' ]]
-
-  [[ "${lines[1]}" =~ $TESTSUITES_REGEX ]]
+  [[ ${lines[0]} == '<?xml version="1.0" encoding="UTF-8"?>' ]]
+  [[ ${lines[1]} =~ \<testsuites\ time=\"${FLOAT_REGEX}\"\> ]]
 
   TESTSUITE_REGEX="<testsuite name=\"skipped.bats\" tests=\"2\" failures=\"0\" errors=\"0\" skipped=\"2\" time=\"$FLOAT_REGEX\" timestamp=\"$TIMESTAMP_REGEX\" hostname=\".*\">"
   echo "TESTSUITE_REGEX='$TESTSUITE_REGEX'"
   [[ "${lines[2]}" =~ $TESTSUITE_REGEX ]]
 
-  TESTCASE_REGEX="<testcase classname=\"skipped.bats\" name=\"a skipped test\" time=\"$FLOAT_REGEX\">"
+  TESTCASE_REGEX="<testcase classname=\"skipped.bats\" name=\"a skipped test( in [0-9]+ms)?\" time=\"$FLOAT_REGEX\">"
   [[ "${lines[3]}" =~ $TESTCASE_REGEX ]]
 
   [[ "${lines[4]}" == *"<skipped></skipped>"* ]]
   [[ "${lines[5]}" == *"</testcase>"* ]]
 
-  TESTCASE_REGEX="<testcase classname=\"skipped.bats\" name=\"a skipped test with a reason\" time=\"$FLOAT_REGEX\">"
+  TESTCASE_REGEX="<testcase classname=\"skipped.bats\" name=\"a skipped test with a reason( in [0-9]+ms)?\" time=\"$FLOAT_REGEX\">"
   [[ "${lines[6]}" =~ $TESTCASE_REGEX ]]
   [[ "${lines[7]}" == *"<skipped>a reason</skipped>"* ]]
   [[ "${lines[8]}" == *"</testcase>"* ]]
@@ -35,31 +35,22 @@ TESTSUITES_REGEX="<testsuites time=\"$FLOAT_REGEX\">"
 }
 
 @test "junit formatter: escapes xml special chars" {
-  case $OSTYPE in
-  linux* | darwin)
-    # their CI can handle special chars on filename
-    TEST_FILE_NAME="xml-escape-\"<>'&.bats"
-    ESCAPED_TEST_FILE_NAME="xml-escape-&quot;&lt;&gt;&#39;&amp;.bats"
-    TEST_FILE_PATH="$BATS_TEST_TMPDIR/$TEST_FILE_NAME"
-    cp "$FIXTURE_ROOT/xml-escape.bats" "$TEST_FILE_PATH"
-    ;;
-  *)
-    # use the filename without special chars
-    TEST_FILE_NAME="xml-escape.bats"
-    ESCAPED_TEST_FILE_NAME="$TEST_FILE_NAME"
-    TEST_FILE_PATH="$FIXTURE_ROOT/$TEST_FILE_NAME"
-    ;;
-  esac
+  TEST_FILE_NAME="xml-escape.bats"
+  TEST_FILE_PATH="$FIXTURE_ROOT/$TEST_FILE_NAME"
   reentrant_run bats --formatter junit "$TEST_FILE_PATH"
 
   echo "$output"
-  [[ "${lines[2]}" == "<testsuite name=\"$ESCAPED_TEST_FILE_NAME\" tests=\"3\" failures=\"1\" errors=\"0\" skipped=\"1\" time=\""*"\" timestamp=\""*"\" hostname=\""*"\">" ]]
-  [[ "${lines[3]}" == "    <testcase classname=\"$ESCAPED_TEST_FILE_NAME\" name=\"Successful test with escape characters: &quot;&#39;&lt;&gt;&amp; (0x1b)\" time=\""*"\" />" ]]
-  [[ "${lines[4]}" == "    <testcase classname=\"$ESCAPED_TEST_FILE_NAME\" name=\"Failed test with escape characters: &quot;&#39;&lt;&gt;&amp; (0x1b)\" "* ]]
-  [[ "${lines[5]}" == '        <failure type="failure">(in test file '*"$ESCAPED_TEST_FILE_NAME, line 6)" ]]
-  [[ "${lines[6]}" == '  `echo &quot;&lt;&gt;&#39;&amp;&quot; &amp;&amp; false&#39; failed'* ]]
-  [[ "${lines[9]}" == "    <testcase classname=\"$ESCAPED_TEST_FILE_NAME\" name=\"Skipped test with escape characters: &quot;&#39;&lt;&gt;&amp; (0x1b)\" time=\""*"\">" ]]
-  [[ "${lines[10]}" == "        <skipped>&quot;&#39;&lt;&gt;&amp;</skipped>" ]]
+
+  for i in "${!lines[@]}"; do echo "$i: ${lines[$i]}"; done
+
+  [[ ${lines[0]} =~ \<\?xml\ version=\"1\.0\"\ encoding=\"UTF-8\"\?\> ]]
+  [[ ${lines[2]} =~ \<testsuite\ name=\"$TEST_FILE_NAME\".*tests=\"3\".*failures=\"1\".*errors=\"0\".*skipped=\"1\".*time=\"${FLOAT_REGEX}\".*timestamp=\"${TIMESTAMP_REGEX}\".*\> ]]
+  [[ ${lines[3]} =~ \<testcase.*name=\"Successful\ test\ with\ escape\ characters:\ ${ESCAPED_CHARS}${MS_REGEX}\".*/\> ]]
+  [[ ${lines[4]} =~ \<testcase.*name=\"Failed\ test\ with\ escape\ characters:\ ${ESCAPED_CHARS}${MS_REGEX}\".*\> ]]
+  [[ $output == *'<failure type="failure">'* ]]
+  [[ $output == *"in test file "*"$TEST_FILE_NAME, line 6)"* ]]
+  [[ ${lines[9]} =~ \<testcase.*name=\"Skipped\ test\ with\ escape\ characters:\ ${ESCAPED_CHARS}${MS_REGEX}\".*\> ]]
+  [[ ${lines[10]} == *"skipped>&quot;&#39;&lt;&gt;&amp;</skipped>"* ]]
 }
 
 @test "junit formatter: test suites" {

@@ -159,7 +159,7 @@ bats_file_exit_trap() {
     else
       failure_reason='unknown internal'
     fi
-    printf "not ok %d %s\n" "$failure_test_index" "$failure_reason failed" >&3
+    printf "not ok %d %s # %s\n" "$failure_test_index" "$test_name" "$failure_reason failed" >&3
     local stack_trace
     bats_get_failure_stack_trace stack_trace
     bats_print_stack_trace "${stack_trace[@]}" >&3
